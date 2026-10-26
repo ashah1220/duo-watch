@@ -16,6 +16,8 @@ The **Watch Duo Stock** workflow (in the Actions tab) polls Duo Stock around the
 - opens a GitHub issue assigned to you, so the **GitHub app** on your phone notifies you, and
 - if you add a repository secret named `NTFY_TOPIC` (Settings → Secrets and variables → Actions), also sends an ntfy push to that topic.
 
+If Duo Stock stops answering, or between 8 AM and 8 PM Eastern its data is more than an hour old, you get a "Duo watcher needs a look" alert instead.
+
 To check that alerts reach your phone, open Actions → Watch Duo Stock → Run workflow and tick "Send a test alert". To stop it, open the workflow's "..." menu and choose Disable workflow.
 
 ## Mac setup (one time)

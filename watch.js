@@ -19,6 +19,7 @@ const DUO_STOCK_API = 'https://duo-checker.on-forge.com/api/v1/nearby';
 const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
 const POLL_SECONDS = 20; // poll this often while a sweep is due
 const POLL_LATE_MINUTES = 2; // keep polling this long past the expected time
+const STALE_MINUTES = 60; // alert if Duo Stock's data is older than this in the daytime
 const PRODUCT_URL =
   'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb-star-white-unlocked';
 
@@ -203,10 +204,18 @@ async function fetchDuoStock() {
   }
 }
 
+// True if Duo Stock should be sweeping now. It sweeps 6:30 AM to 9:30 PM
+// Eastern; 8 AM to 8 PM leaves room on both ends, whatever clock it uses.
+function duoStockDaytime() {
+  const hour = Number(new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }));
+  return hour >= 8 && hour < 20;
+}
+
 async function watchDuoStock() {
   let lastRun = '';
   let lastHit = '';
   let failures = 0;
+  let staleAlerted = false;
   let due = Date.now(); // when the next sweep should publish
 
   for (;;) {
@@ -219,6 +228,15 @@ async function watchDuoStock() {
       if (d) failures = 0;
       else if (++failures === 10) {
         await notify('Duo watcher needs a look', 'Duo Stock has failed 10 times in a row. See the Terminal window.');
+      }
+      if (d) {
+        const age = (Date.now() - Date.parse(d.run_finished_at)) / 60000;
+        const stale = d.is_stale || (age > STALE_MINUTES && duoStockDaytime());
+        if (stale && !staleAlerted) {
+          await notify('Duo watcher needs a look', `Duo Stock hasn't updated in ${Math.round(age)} minutes, so stock alerts may be late. Check duo-checker.on-forge.com.`);
+        }
+        if (stale !== staleAlerted) console.log(`[${now()}] Duo Stock data is ${stale ? 'stale' : 'fresh again'}.`);
+        staleAlerted = stale;
       }
       if (d && d.run_id !== lastRun) {
         data = d;
