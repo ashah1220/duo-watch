@@ -12,6 +12,7 @@ const PART = 'MK1G4LL/A'; // iPhone Duo 512GB Star White (US)
 const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
+const STATUS_TOPIC = process.env.STATUS_TOPIC || ''; // optional ntfy topic for every check's result
 const APPLE = process.env.APPLE !== '0'; // APPLE=0 skips asking Apple directly
 const APPLE_API = 'https://www.apple.com/shop/retail/pickup-message';
 const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 4);
@@ -26,6 +27,18 @@ const PRODUCT_URL =
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toLocaleTimeString();
+
+// Log one check's result, and copy it to STATUS_TOPIC so it can be read
+// while the watcher runs (GitHub only shows logs once a run ends).
+function status(line) {
+  console.log(`[${now()}] ${line}`);
+  if (!STATUS_TOPIC) return;
+  fetch(`https://ntfy.sh/${encodeURIComponent(STATUS_TOPIC)}`, {
+    method: 'POST',
+    headers: { Priority: 'min' },
+    body: `${new Date().toISOString().slice(11, 19)}Z ${line}`,
+  }).catch(() => {});
+}
 
 function macNotify(title, text) {
   const script = `display notification ${JSON.stringify(text)} with title ${JSON.stringify(title)} sound name "Glass"`;
@@ -81,21 +94,21 @@ async function fetchApple() {
       },
     });
     if (res.status === 541 || res.status === 403 || res.status === 429) {
-      console.log(`[${now()}] Apple: HTTP ${res.status}, it's asking us to slow down.`);
+      status(`Apple: HTTP ${res.status}, it's asking us to slow down.`);
       return { blocked: true };
     }
     if (!res.ok) {
-      console.log(`[${now()}] Apple: HTTP ${res.status}.`);
+      status(`Apple: HTTP ${res.status}.`);
       return null;
     }
     const stores = (await res.json())?.body?.stores;
     if (!stores?.length) {
-      console.log(`[${now()}] Apple: no stores in the reply.`);
+      status(`Apple: no stores in the reply.`);
       return null;
     }
     return { stores };
   } catch (e) {
-    console.log(`[${now()}] Apple error: ${e.message}`);
+    status(`Apple error: ${e.message}`);
     return null;
   }
 }
@@ -117,7 +130,7 @@ async function watchApple() {
           hits.push(`${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}`);
         }
       }
-      console.log(`[${now()}] Apple: ${r.stores.length} stores out to ${farthest} mi: ${hits.length ? hits.join('; ') : 'not in stock nearby'}.`);
+      status(`Apple: ${r.stores.length} stores out to ${farthest} mi: ${hits.length ? hits.join('; ') : 'not in stock nearby'}.`);
       const key = hits.join('|');
       if (hits.length && key !== lastHit) {
         await notify('iPhone Duo 512GB White IN STOCK (Apple)', hits.join('\n'));
@@ -141,17 +154,17 @@ async function fetchDuoStock() {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (res.status === 429) {
       const wait = Number(res.headers.get('retry-after') || 60);
-      console.log(`[${now()}] Duo Stock: rate limited, waiting ${wait}s.`);
+      status(`Duo Stock: rate limited, waiting ${wait}s.`);
       await sleep(wait * 1000);
       return null;
     }
     if (!res.ok) {
-      console.log(`[${now()}] Duo Stock: HTTP ${res.status}.`);
+      status(`Duo Stock: HTTP ${res.status}.`);
       return null;
     }
     return await res.json();
   } catch (e) {
-    console.log(`[${now()}] Duo Stock error: ${e.message}`);
+    status(`Duo Stock error: ${e.message}`);
     return null;
   }
 }
@@ -187,7 +200,7 @@ async function watchDuoStock() {
         if (stale && !staleAlerted) {
           await notify('Duo watcher needs a look', `Duo Stock hasn't updated in ${Math.round(age)} minutes, so stock alerts may be late. Check duo-checker.on-forge.com.`);
         }
-        if (stale !== staleAlerted) console.log(`[${now()}] Duo Stock data is ${stale ? 'stale' : 'fresh again'}.`);
+        if (stale !== staleAlerted) status(`Duo Stock data is ${stale ? 'stale' : 'fresh again'}.`);
         staleAlerted = stale;
       }
       if (d && d.run_id !== lastRun) {
@@ -214,7 +227,7 @@ async function watchDuoStock() {
       return `${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}`;
     });
     const sweptAt = new Date(data.run_finished_at).toLocaleTimeString();
-    console.log(`[${now()}] Duo Stock sweep from ${sweptAt}: ${hits.length ? hits.join('; ') : 'not in stock nearby'}${data.is_stale ? ' (stale)' : ''}.`);
+    status(`Duo Stock sweep from ${sweptAt}: ${hits.length ? hits.join('; ') : 'not in stock nearby'}${data.is_stale ? ' (stale)' : ''}.`);
     const key = hits.join('|');
     if (hits.length && key !== lastHit) {
       await notify('iPhone Duo 512GB White IN STOCK (Duo Stock)', hits.join('\n'));
