@@ -9,7 +9,16 @@ It checks two sources at the same time:
 
 When the phone is in stock nearby, it sends a Mac notification and, if you set it up, a push notification to your phone.
 
-## Setup (one time)
+## No computer? It also runs on GitHub
+
+The **Watch Duo Stock** workflow (in the Actions tab) polls Duo Stock around the clock on GitHub's servers, with no Mac needed. It only uses Duo Stock, not Apple's page. When the phone is in stock within 100 miles it:
+
+- opens a GitHub issue assigned to you, so the **GitHub app** on your phone notifies you, and
+- if you add a repository secret named `NTFY_TOPIC` (Settings → Secrets and variables → Actions), also sends an ntfy push to that topic.
+
+To check that alerts reach your phone, open Actions → Watch Duo Stock → Run workflow and tick "Send a test alert". To stop it, open the workflow's "..." menu and choose Disable workflow.
+
+## Mac setup (one time)
 
 1. Install **Node.js**: go to <https://nodejs.org>, download the macOS installer, and run it.
 2. Open **Terminal** (Spotlight → "Terminal"), then paste this and press Return:

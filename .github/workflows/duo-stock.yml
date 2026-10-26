@@ -1,0 +1,44 @@
+name: Watch Duo Stock
+
+# Each run polls Duo Stock until 30 minutes past the next 3-hour mark, then
+# exits. The next scheduled run is already queued by then and picks up right
+# away, so polling never stops. Run it by hand once to start immediately.
+on:
+  schedule:
+    - cron: "7 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: Send a test alert when it starts
+        type: boolean
+        default: false
+
+permissions:
+  issues: write
+
+concurrency:
+  group: duo-stock
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Poll Duo Stock
+        env:
+          DUO_STOCK_ONLY: "1"
+          TEST_ALERT: ${{ inputs.test_alert && '1' || '' }}
+          ZIP: "94536"
+          MAX_MILES: "100"
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          end=$(( ( $(date +%s) / 10800 + 1 ) * 10800 + 1800 ))
+          timeout $(( end - $(date +%s) )) node watch.js || [ $? -eq 124 ]

@@ -6,7 +6,6 @@
 // - Duo Stock (duo-checker.on-forge.com), which sweeps every US store every
 //   20 minutes. We poll it every 20 seconds around when each sweep publishes.
 // Sends a push notification (ntfy) and a Mac notification when it's in stock.
-const { chromium } = require('playwright');
 const { execFile } = require('child_process');
 const path = require('path');
 
@@ -15,6 +14,7 @@ const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
 const EVERY_MINUTES = Number(process.env.EVERY_MINUTES || 10);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
+const DUO_STOCK_ONLY = process.env.DUO_STOCK_ONLY === '1'; // skip Apple's page (no browser)
 const DUO_STOCK_API = 'https://duo-checker.on-forge.com/api/v1/nearby';
 const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
 const POLL_SECONDS = 20; // poll this often while a sweep is due
@@ -43,10 +43,27 @@ async function phoneNotify(title, text) {
   }
 }
 
+// When running in GitHub Actions, open an issue assigned to the repo owner so
+// the GitHub app on their phone sends a notification.
+async function issueNotify(title, text) {
+  const { GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_REPOSITORY_OWNER } = process.env;
+  if (!GITHUB_TOKEN || !GITHUB_REPOSITORY) return;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' },
+      body: JSON.stringify({ title, body: `${text}\n\n${PRODUCT_URL}`, assignees: [GITHUB_REPOSITORY_OWNER] }),
+    });
+    if (!res.ok) console.log(`[${now()}] Issue alert failed: HTTP ${res.status}`);
+  } catch (e) {
+    console.log(`[${now()}] Issue alert failed: ${e.message}`);
+  }
+}
+
 async function notify(title, text) {
   console.log(`\n*** ${title}\n${text}\n`);
   macNotify(title, text);
-  await phoneNotify(title, text);
+  await Promise.all([phoneNotify(title, text), issueNotify(title, text)]);
 }
 
 // Pull the store list out of one of Apple's fulfillment-messages responses.
@@ -122,6 +139,7 @@ async function checkOnce(context) {
 }
 
 async function watchApplePage() {
+  const { chromium } = require('playwright');
   const context = await chromium.launchPersistentContext(path.join(__dirname, 'browser-profile'), {
     headless: process.env.HEADLESS === '1',
     viewport: { width: 1280, height: 900 },
@@ -237,8 +255,12 @@ async function watchDuoStock() {
 
 async function main() {
   console.log(`Watching ${PART} within ${MAX_MILES} mi of ${ZIP}.`);
-  console.log(`Apple's page about every ${EVERY_MINUTES} min; Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
-  console.log('Leave the browser window open. Press Ctrl+C here to stop.\n');
+  console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
+  if (process.env.TEST_ALERT === '1') {
+    await notify('Duo watcher test alert', `If you see this, alerts work. Watching Star White 512GB within ${MAX_MILES} mi of ${ZIP}.`);
+  }
+  if (DUO_STOCK_ONLY) return watchDuoStock();
+  console.log(`Apple's page about every ${EVERY_MINUTES} min. Leave the browser window open. Press Ctrl+C here to stop.\n`);
   await Promise.all([watchApplePage(), watchDuoStock()]);
 }
 
