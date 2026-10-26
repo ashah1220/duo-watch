@@ -1,7 +1,10 @@
 // Watches Apple Store pickup stock for iPhone Duo 512GB Star White near a ZIP.
 //
-// Opens Apple's real product page in a visible browser on your Mac every few
-// minutes and reads the pickup availability that Apple's own page loads.
+// Two sources, checked side by side:
+// - Apple's real product page, opened in a visible browser on your Mac every
+//   few minutes, reading the pickup availability that Apple's own page loads.
+// - Duo Stock (duo-checker.on-forge.com), which sweeps every US store every
+//   20 minutes. We poll it every 20 seconds around when each sweep publishes.
 // Sends a push notification (ntfy) and a Mac notification when it's in stock.
 const { chromium } = require('playwright');
 const { execFile } = require('child_process');
@@ -9,9 +12,13 @@ const path = require('path');
 
 const PART = 'MK1G4LL/A'; // iPhone Duo 512GB Star White (US)
 const ZIP = process.env.ZIP || '94536';
-const MAX_MILES = Number(process.env.MAX_MILES || 60);
+const MAX_MILES = Number(process.env.MAX_MILES || 100);
 const EVERY_MINUTES = Number(process.env.EVERY_MINUTES || 10);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
+const DUO_STOCK_API = 'https://duo-checker.on-forge.com/api/v1/nearby';
+const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
+const POLL_SECONDS = 20; // poll this often while a sweep is due
+const POLL_LATE_MINUTES = 2; // keep polling this long past the expected time
 const PRODUCT_URL =
   'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb-star-white-unlocked';
 
@@ -114,9 +121,7 @@ async function checkOnce(context) {
   }
 }
 
-async function main() {
-  console.log(`Watching ${PART} within ${MAX_MILES} mi of ${ZIP}, about every ${EVERY_MINUTES} min.`);
-  console.log('Leave the browser window open. Press Ctrl+C here to stop.\n');
+async function watchApplePage() {
   const context = await chromium.launchPersistentContext(path.join(__dirname, 'browser-profile'), {
     headless: process.env.HEADLESS === '1',
     viewport: { width: 1280, height: 900 },
@@ -156,6 +161,85 @@ async function main() {
     // Wait EVERY_MINUTES, plus or minus a minute.
     await sleep((EVERY_MINUTES + (Math.random() * 2 - 1)) * 60000);
   }
+}
+
+// One Duo Stock request. Returns the parsed body, or null if it failed.
+async function fetchDuoStock() {
+  const url = `${DUO_STOCK_API}?zip=${ZIP}&part_number=${encodeURIComponent(PART)}&radius_miles=${MAX_MILES}&available_only=1&limit=50`;
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (res.status === 429) {
+      const wait = Number(res.headers.get('retry-after') || 60);
+      console.log(`[${now()}] Duo Stock: rate limited, waiting ${wait}s.`);
+      await sleep(wait * 1000);
+      return null;
+    }
+    if (!res.ok) {
+      console.log(`[${now()}] Duo Stock: HTTP ${res.status}.`);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.log(`[${now()}] Duo Stock error: ${e.message}`);
+    return null;
+  }
+}
+
+async function watchDuoStock() {
+  let lastRun = '';
+  let lastHit = '';
+  let failures = 0;
+  let due = Date.now(); // when the next sweep should publish
+
+  for (;;) {
+    // Sleep until just before the next sweep is due, then poll every
+    // POLL_SECONDS until it shows up or we're POLL_LATE_MINUTES past due.
+    await sleep(Math.max(0, due - POLL_SECONDS * 1000 - Date.now()));
+    let data = null;
+    while (Date.now() < due + POLL_LATE_MINUTES * 60000) {
+      const d = await fetchDuoStock();
+      if (d) failures = 0;
+      else if (++failures === 10) {
+        await notify('Duo watcher needs a look', 'Duo Stock has failed 10 times in a row. See the Terminal window.');
+      }
+      if (d && d.run_id !== lastRun) {
+        data = d;
+        break;
+      }
+      await sleep(POLL_SECONDS * 1000);
+    }
+
+    if (!data) {
+      // No new sweep (overnight, or it ran late). Try again at the next slot.
+      due += SWEEP_MINUTES * 60000;
+      continue;
+    }
+
+    lastRun = data.run_id;
+    const started = Date.parse(data.run_started_at);
+    const took = Date.parse(data.run_finished_at) - started;
+    due = started + SWEEP_MINUTES * 60000 + took;
+    while (due < Date.now()) due += SWEEP_MINUTES * 60000;
+
+    const hits = (data.stores || []).map((s) => {
+      const p = s.products.find((x) => x.part_number === PART) || {};
+      return `${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}`;
+    });
+    const sweptAt = new Date(data.run_finished_at).toLocaleTimeString();
+    console.log(`[${now()}] Duo Stock sweep from ${sweptAt}: ${hits.length ? hits.join('; ') : 'not in stock nearby'}${data.is_stale ? ' (stale)' : ''}.`);
+    const key = hits.join('|');
+    if (hits.length && key !== lastHit) {
+      await notify('iPhone Duo 512GB White IN STOCK (Duo Stock)', hits.join('\n'));
+    }
+    lastHit = key;
+  }
+}
+
+async function main() {
+  console.log(`Watching ${PART} within ${MAX_MILES} mi of ${ZIP}.`);
+  console.log(`Apple's page about every ${EVERY_MINUTES} min; Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
+  console.log('Leave the browser window open. Press Ctrl+C here to stop.\n');
+  await Promise.all([watchApplePage(), watchDuoStock()]);
 }
 
 main();
