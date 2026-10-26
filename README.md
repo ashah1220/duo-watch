@@ -4,7 +4,7 @@ Watches **Apple Store pickup stock** for the **iPhone Duo 512GB** in **Star Whit
 
 It checks two sources at the same time:
 
-- **Apple directly:** about every 4 minutes it asks Apple's pickup endpoint (the one "Check availability" on the buy page uses) about the stores nearest 94536. Apple answers with the closest 12 or so stores, which reaches about 27 miles (Fremont to Berkeley, San Mateo and Los Gatos).
+- **Apple directly:** every 2 minutes it asks Apple's pickup endpoint (the one "Check availability" on the buy page uses). Apple answers with the 12 or so stores nearest the ZIP asked about, so the watcher rotates through 94536 → Vacaville (95688) → 94536 → Salinas (93901), which together cover every store within 100 miles. Your closest 12 stores get checked every 4 minutes and the rest every 8. If Apple says to slow down, it pauses 30 minutes and then checks a minute less often.
 - **[Duo Stock](https://duo-checker.on-forge.com):** this site checks every US Apple Store every 20 minutes (6:30 AM to 9:30 PM Eastern), which covers the whole 100 miles. The watcher works out when each check will publish and polls every 20 seconds around that time, so it sees new results within seconds.
 
 ## Where it runs: GitHub (no computer needed)
@@ -32,4 +32,4 @@ Only useful if Apple starts refusing GitHub's servers. Apple limits how often on
 - Terminal prints one line per Apple check and per Duo Stock check.
 - `caffeinate` keeps the Mac awake while it runs, but closing the lid still sleeps it. Keep it plugged in.
 - To stop it, click the Terminal window and press **Ctrl+C**.
-- `APPLE_EVERY_MINUTES=3` checks Apple more often; `APPLE=0` turns the Apple check off.
+- `APPLE_EVERY_MINUTES=4` checks Apple less often; `APPLE=0` turns the Apple check off.
