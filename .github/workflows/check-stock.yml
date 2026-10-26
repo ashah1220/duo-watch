@@ -1,8 +1,11 @@
 name: Check iPhone Duo stock
 
 on:
-  schedule:
-    - cron: "*/10 * * * *"  # every 10 minutes (GitHub may delay scheduled runs)
+  # Disabled: Apple currently blocks requests from GitHub-hosted runners (HTTP 541),
+  # so every scheduled run would fail. Re-enable if that changes, or use a
+  # self-hosted runner on your own network (runs-on: self-hosted).
+  # schedule:
+  #   - cron: "*/10 * * * *"  # every 10 minutes
   workflow_dispatch:
 
 permissions:
