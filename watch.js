@@ -1,20 +1,21 @@
 // Watches Apple Store pickup stock for iPhone Duo 512GB Star White near a ZIP.
 //
 // Two sources, checked side by side:
-// - Apple's real product page, opened in a visible browser on your Mac every
-//   few minutes, reading the pickup availability that Apple's own page loads.
+// - Apple's own pickup endpoint (what "Check availability" on the buy page
+//   uses), asked every few minutes about the stores nearest the ZIP.
 // - Duo Stock (duo-checker.on-forge.com), which sweeps every US store every
 //   20 minutes. We poll it every 20 seconds around when each sweep publishes.
 // Sends a push notification (ntfy) and a Mac notification when it's in stock.
 const { execFile } = require('child_process');
-const path = require('path');
 
 const PART = 'MK1G4LL/A'; // iPhone Duo 512GB Star White (US)
 const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
-const EVERY_MINUTES = Number(process.env.EVERY_MINUTES || 10);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
-const DUO_STOCK_ONLY = process.env.DUO_STOCK_ONLY === '1'; // skip Apple's page (no browser)
+const APPLE = process.env.APPLE !== '0'; // APPLE=0 skips asking Apple directly
+const APPLE_API = 'https://www.apple.com/shop/retail/pickup-message';
+const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 4);
+const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
 const DUO_STOCK_API = 'https://duo-checker.on-forge.com/api/v1/nearby';
 const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
 const POLL_SECONDS = 20; // poll this often while a sweep is due
@@ -67,118 +68,69 @@ async function notify(title, text) {
   await Promise.all([phoneNotify(title, text), issueNotify(title, text)]);
 }
 
-// Pull the store list out of one of Apple's fulfillment-messages responses.
-function storesFrom(json) {
-  return json?.body?.content?.pickupMessage?.stores || null;
-}
-
-async function clickIfThere(page, selector) {
+// Ask Apple's pickup endpoint (the one its buy page uses) about the stores
+// nearest ZIP. Returns Apple's store list, or { blocked } / null on failure.
+async function fetchApple() {
+  const url = `${APPLE_API}?pl=true&location=${ZIP}&parts.0=${encodeURIComponent(PART)}`;
   try {
-    await page.locator(selector).first().click({ timeout: 3000 });
-    await sleep(1200);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function checkOnce(context) {
-  const page = await context.newPage();
-  let stores = null;
-  let blocked = false;
-  page.on('response', async (res) => {
-    if (!res.url().includes('/shop/fulfillment-messages')) return;
-    if (res.status() !== 200) {
-      blocked = true;
-      return;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+        Accept: 'application/json',
+        Referer: PRODUCT_URL,
+      },
+    });
+    if (res.status === 541 || res.status === 403 || res.status === 429) {
+      console.log(`[${now()}] Apple: HTTP ${res.status}, it's asking us to slow down.`);
+      return { blocked: true };
     }
-    try {
-      const s = storesFrom(await res.json());
-      if (s && s.length) stores = s;
-    } catch {}
-  });
-
-  try {
-    await page.goto(PRODUCT_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await sleep(6000);
-
-    // Pick the same options you would so the pickup section shows up.
-    for (const a of ['choose-noTradeIn', 'purchaseGroupOptionfullprice', 'carrierModelUNLOCKED/US', 'noapplecare']) {
-      await clickIfThere(page, `[data-autom="${a}"]`);
-    }
-    await sleep(3000);
-
-    // Open "Check availability" and search the ZIP, like you'd do by hand.
-    if (!stores) {
-      const opened =
-        (await clickIfThere(page, 'button:has-text("Check availability")')) ||
-        (await clickIfThere(page, 'button:has-text("availability")')) ||
-        (await clickIfThere(page, '[data-autom*="pickup" i] button'));
-      if (opened) {
-        const zipBox = page
-          .locator('input[placeholder*="ZIP" i], input[aria-label*="ZIP" i], input[name*="zip" i], input[name*="location" i], input[type="search"]')
-          .first();
-        try {
-          await zipBox.fill(ZIP, { timeout: 5000 });
-          await zipBox.press('Enter');
-        } catch {}
-        for (let i = 0; i < 10 && !stores; i++) await sleep(1000);
-      }
-    }
-
-    if (!stores) {
-      const shot = path.join(__dirname, 'last-problem.png');
-      await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
-      const why = blocked ? 'Apple refused the stock request' : "couldn't find the pickup stock on the page";
-      console.log(`[${now()}] Check failed: ${why}. Screenshot saved to ${shot}`);
+    if (!res.ok) {
+      console.log(`[${now()}] Apple: HTTP ${res.status}.`);
       return null;
     }
-    return stores;
-  } finally {
-    await page.close().catch(() => {});
+    const stores = (await res.json())?.body?.stores;
+    if (!stores?.length) {
+      console.log(`[${now()}] Apple: no stores in the reply.`);
+      return null;
+    }
+    return { stores };
+  } catch (e) {
+    console.log(`[${now()}] Apple error: ${e.message}`);
+    return null;
   }
 }
 
-async function watchApplePage() {
-  const { chromium } = require('playwright');
-  const context = await chromium.launchPersistentContext(path.join(__dirname, 'browser-profile'), {
-    headless: process.env.HEADLESS === '1',
-    viewport: { width: 1280, height: 900 },
-  });
-
+async function watchApple() {
   let lastHit = '';
   let failures = 0;
   for (;;) {
-    const stores = await checkOnce(context).catch((e) => {
-      console.log(`[${now()}] Error: ${e.message}`);
-      return null;
-    });
-
-    if (stores) {
+    const r = await fetchApple();
+    if (r?.stores) {
       failures = 0;
       const hits = [];
-      for (const s of stores) {
+      let farthest = 0;
+      for (const s of r.stores) {
         const miles = parseFloat(s.storedistance ?? s.storeDistanceWithUnit ?? 'Infinity');
+        farthest = Math.max(farthest, miles);
         const a = s.partsAvailability?.[PART] || {};
-        const status = a.pickupDisplay || 'unknown';
-        console.log(`[${now()}] ${String(miles).padStart(5)} mi  ${s.storeName} (${s.city}): ${status} ${a.pickupSearchQuote || ''}`);
-        if (status === 'available' && miles <= MAX_MILES) {
+        if (a.pickupDisplay === 'available' && miles <= MAX_MILES) {
           hits.push(`${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}`);
         }
       }
+      console.log(`[${now()}] Apple: ${r.stores.length} stores out to ${farthest} mi: ${hits.length ? hits.join('; ') : 'not in stock nearby'}.`);
       const key = hits.join('|');
       if (hits.length && key !== lastHit) {
-        await notify('iPhone Duo 512GB White IN STOCK', hits.join('\n'));
-      } else if (!hits.length) {
-        console.log(`[${now()}] Not in stock nearby.`);
+        await notify('iPhone Duo 512GB White IN STOCK (Apple)', hits.join('\n'));
       }
       lastHit = key;
-    } else if (++failures === 3) {
-      await notify('Duo watcher needs a look', 'Three checks in a row failed. See the Terminal window.');
+    } else if (++failures === 6) {
+      await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
     }
 
-    // Wait EVERY_MINUTES, plus or minus a minute.
-    await sleep((EVERY_MINUTES + (Math.random() * 2 - 1)) * 60000);
+    // Apple limits how often one internet connection can ask, and a block
+    // covers every device on it, so back off hard when it says slow down.
+    const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : APPLE_EVERY_MINUTES;
+    await sleep((minutes + (Math.random() - 0.5) / 2) * 60000);
   }
 }
 
@@ -274,12 +226,12 @@ async function watchDuoStock() {
 async function main() {
   console.log(`Watching ${PART} within ${MAX_MILES} mi of ${ZIP}.`);
   console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
+  if (APPLE) console.log(`Apple directly about every ${APPLE_EVERY_MINUTES} min (nearest ~12 stores).`);
+  console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
     await notify('Duo watcher test alert', `If you see this, alerts work. Watching Star White 512GB within ${MAX_MILES} mi of ${ZIP}.`);
   }
-  if (DUO_STOCK_ONLY) return watchDuoStock();
-  console.log(`Apple's page about every ${EVERY_MINUTES} min. Leave the browser window open. Press Ctrl+C here to stop.\n`);
-  await Promise.all([watchApplePage(), watchDuoStock()]);
+  await Promise.all([APPLE && watchApple(), watchDuoStock()]);
 }
 
 main();

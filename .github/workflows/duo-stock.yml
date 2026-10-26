@@ -1,8 +1,8 @@
 name: Watch Duo Stock
 
-# Each run polls Duo Stock until 30 minutes past the next 3-hour mark, then
-# exits. The next scheduled run is already queued by then and picks up right
-# away, so polling never stops. Run it by hand once to start immediately.
+# Each run watches Apple and Duo Stock until 30 minutes past the next 3-hour
+# mark, then exits. The next scheduled run is already queued by then and picks
+# up right away, so polling never stops. Run it by hand once to start immediately.
 on:
   schedule:
     - cron: "7 */3 * * *"
@@ -31,9 +31,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Poll Duo Stock
+      - name: Watch Apple and Duo Stock
         env:
-          DUO_STOCK_ONLY: "1"
           TEST_ALERT: ${{ inputs.test_alert && '1' || '' }}
           ZIP: "94536"
           MAX_MILES: "100"

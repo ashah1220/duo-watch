@@ -1,47 +1,35 @@
 # duo-watch
 
-Runs on your Mac and watches **Apple Store pickup stock** for the **iPhone Duo 512GB Star White** (MK1G4LL/A) within **100 miles of 94536**.
+Watches **Apple Store pickup stock** for the **iPhone Duo 512GB Star White** (MK1G4LL/A) within **100 miles of 94536**, and alerts your phone when it shows up.
 
 It checks two sources at the same time:
 
-- **Apple's page:** about every 10 minutes it opens Apple's real product page in a browser window and reads the pickup availability that Apple's own page loads. Apple only lists the stores closest to you, so this may not reach the farther stores.
-- **[Duo Stock](https://duo-checker.on-forge.com):** this site checks every US Apple Store every 20 minutes (6:30 AM to 9:30 PM Eastern). The watcher works out when each check will publish and polls every 20 seconds around that time, so it sees new results within seconds. That's roughly 9 requests an hour.
+- **Apple directly:** about every 4 minutes it asks Apple's pickup endpoint (the one "Check availability" on the buy page uses) about the stores nearest 94536. Apple answers with the closest 12 or so stores, which reaches about 27 miles (Fremont to Berkeley, San Mateo and Los Gatos).
+- **[Duo Stock](https://duo-checker.on-forge.com):** this site checks every US Apple Store every 20 minutes (6:30 AM to 9:30 PM Eastern), which covers the whole 100 miles. The watcher works out when each check will publish and polls every 20 seconds around that time, so it sees new results within seconds.
 
-When the phone is in stock nearby, it sends a Mac notification and, if you set it up, a push notification to your phone.
+## Where it runs: GitHub (no computer needed)
 
-## No computer? It also runs on GitHub
-
-The **Watch Duo Stock** workflow (in the Actions tab) polls Duo Stock around the clock on GitHub's servers, with no Mac needed. It only uses Duo Stock, not Apple's page. When the phone is in stock within 100 miles it:
+The **Watch Duo Stock** workflow (in the Actions tab) runs the watcher around the clock on GitHub's servers. When the phone is in stock within 100 miles it:
 
 - opens a GitHub issue assigned to you, so the **GitHub app** on your phone notifies you, and
-- if you add a repository secret named `NTFY_TOPIC` (Settings → Secrets and variables → Actions), also sends an ntfy push to that topic.
+- if the repository secret `NTFY_TOPIC` is set (Settings → Secrets and variables → Actions), also sends an urgent ntfy push to that topic.
 
-If Duo Stock stops answering, or between 8 AM and 8 PM Eastern its data is more than an hour old, you get a "Duo watcher needs a look" alert instead.
+You get a "Duo watcher needs a look" alert instead if Duo Stock stops answering, if its data is over an hour old between 8 AM and 8 PM Eastern, or if Apple's check fails 6 times in a row.
 
 To check that alerts reach your phone, open Actions → Watch Duo Stock → Run workflow and tick "Send a test alert". To stop it, open the workflow's "..." menu and choose Disable workflow.
 
-## Mac setup (one time)
+## Running it on a Mac instead (optional)
 
-1. Install **Node.js**: go to <https://nodejs.org>, download the macOS installer, and run it.
-2. Open **Terminal** (Spotlight → "Terminal"), then paste this and press Return:
+Only useful if Apple starts refusing GitHub's servers. Apple limits how often one internet connection can ask (reportedly about 20 times an hour), and when it refuses, it refuses **every device on that Wi-Fi**, including your phone when you try to buy. If that happens, buy on cellular.
+
+1. Install **Node.js** from <https://nodejs.org>.
+2. In **Terminal**, paste this and press Return (use your own ntfy topic):
 
    ```
-   mkdir -p ~/duo-watch && cd ~/duo-watch && curl -fsSL -o watch.js https://raw.githubusercontent.com/ashah1220/duo-watch/claude/iphone-duo-stock-checker-2bjkdu/watch.js && curl -fsSL -o package.json https://raw.githubusercontent.com/ashah1220/duo-watch/claude/iphone-duo-stock-checker-2bjkdu/package.json && npm run setup
+   mkdir -p ~/duo-watch && cd ~/duo-watch && curl -fsSL -o watch.js https://raw.githubusercontent.com/ashah1220/duo-watch/claude/iphone-duo-stock-checker-2bjkdu/watch.js && NTFY_TOPIC=your-topic caffeinate -i node watch.js
    ```
 
-3. For phone alerts: install the **ntfy** app on your phone and subscribe to a hard-to-guess topic name, like `duo-ashah-7731`.
-
-## Run it
-
-```
-cd ~/duo-watch && NTFY_TOPIC=duo-ashah-7731 npm start
-```
-
-Replace `duo-ashah-7731` with your own topic name.
-
-- A browser window opens and checks Apple's page. Leave it open. You can move it out of the way, but don't close it.
-- The Terminal window prints each store and its status on every check, plus one line for each Duo Stock check.
-- Keep the Mac plugged in. `npm start` uses `caffeinate`, which stops the Mac from sleeping while the watcher runs, but closing a laptop lid still sleeps it.
+- Terminal prints one line per Apple check and per Duo Stock check.
+- `caffeinate` keeps the Mac awake while it runs, but closing the lid still sleeps it. Keep it plugged in.
 - To stop it, click the Terminal window and press **Ctrl+C**.
-
-If three checks in a row fail, you get a "needs a look" alert. The page from the failed check is saved as `~/duo-watch/last-problem.png`.
+- `APPLE_EVERY_MINUTES=3` checks Apple more often; `APPLE=0` turns the Apple check off.
