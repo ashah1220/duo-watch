@@ -18,6 +18,9 @@ const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
 const BARK_URL = (process.env.BARK_URL || '').replace(/\/+$/, ''); // e.g. https://api.day.app/<your key>
+// Text alerts: email from a Gmail account (an app password, not the real
+// one) to the carrier's email-to-text address, e.g. 5105551234@tmomail.net.
+const { GMAIL_USER, GMAIL_APP_PASSWORD, SMS_TO } = process.env;
 const STATUS_TOPIC = process.env.STATUS_TOPIC || ''; // optional ntfy topic for every check's result
 const APPLE = process.env.APPLE !== '0'; // APPLE=0 skips asking Apple directly
 const APPLE_API = 'https://www.apple.com/shop/retail/pickup-message';
@@ -120,6 +123,25 @@ async function barkNotify(title, text, url, critical) {
   }
 }
 
+// Send a short email to the carrier's email-to-text address, through Gmail
+// with curl (it speaks SMTP), so no mail library is needed.
+function smsNotify(title, text) {
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD || !SMS_TO) return;
+  const message = `From: ${GMAIL_USER}\r\nTo: ${SMS_TO}\r\nSubject: ${title}\r\n\r\n${text}\r\n`;
+  return new Promise((resolve) => {
+    const curl = execFile(
+      'curl',
+      ['-sS', '--max-time', '30', '--ssl-reqd', '--url', 'smtps://smtp.gmail.com:465', '--user', `${GMAIL_USER}:${GMAIL_APP_PASSWORD}`,
+        '--mail-from', GMAIL_USER, '--mail-rcpt', SMS_TO, '--upload-file', '-'],
+      (err, _out, errText) => {
+        if (err) console.log(`[${now()}] Text failed: ${(errText || err.message).trim()}`);
+        resolve();
+      },
+    );
+    curl.stdin.end(message);
+  });
+}
+
 // When running in GitHub Actions, open an issue assigned to the repo owner so
 // the GitHub app on their phone sends a notification.
 async function issueNotify(title, text, url) {
@@ -141,7 +163,7 @@ async function notify(title, text, url = PRODUCT_URL) {
   console.log(`\n*** ${title}\n${text}\n`);
   macNotify(title, text);
   const critical = title.includes('IN STOCK');
-  await Promise.all([phoneNotify(title, text, url), barkNotify(title, text, url, critical), issueNotify(title, text, url)]);
+  await Promise.all([phoneNotify(title, text, url), barkNotify(title, text, url, critical), smsNotify(title, text), issueNotify(title, text, url)]);
 }
 
 // Straight-line miles between two [lat, lon] points.

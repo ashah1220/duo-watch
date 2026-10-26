@@ -45,6 +45,9 @@ jobs:
           MAX_MILES: "100"
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           BARK_URL: ${{ secrets.BARK_URL }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SMS_TO: ${{ secrets.SMS_TO }}
           STATUS_TOPIC: ${{ secrets.NTFY_TOPIC && format('{0}-status', secrets.NTFY_TOPIC) || '' }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |

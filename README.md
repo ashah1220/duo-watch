@@ -13,7 +13,8 @@ The **Watch Duo Stock** workflow (in the Actions tab) runs the watcher around th
 
 - opens a GitHub issue assigned to you, so the **GitHub app** on your phone notifies you, and
 - if the repository secret `NTFY_TOPIC` is set (Settings → Secrets and variables → Actions), also sends an urgent ntfy push to that topic, and
-- if the secret `BARK_URL` is set to the URL the **Bark** iPhone app shows (`https://api.day.app/<key>`), sends a Bark critical alert, which sounds even when the phone is on silent.
+- if the secret `BARK_URL` is set to the URL the **Bark** iPhone app shows (`https://api.day.app/<key>`), sends a Bark critical alert, which sounds even when the phone is on silent, and
+- if the secrets `GMAIL_USER`, `GMAIL_APP_PASSWORD` (a Gmail app password) and `SMS_TO` (your carrier's email-to-text address, e.g. `5105551234@tmomail.net`) are set, emails a text to your phone.
 
 You get a "Duo watcher needs a look" alert instead if Duo Stock stops answering, if its data is over an hour old between 8 AM and 8 PM Eastern, or if Apple's check fails 6 times in a row.
 
