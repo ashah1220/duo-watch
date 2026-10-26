@@ -1,11 +1,8 @@
 name: Check iPhone Duo stock
 
 on:
-  # Disabled: Apple currently blocks requests from GitHub-hosted runners (HTTP 541),
-  # so every scheduled run would fail. Re-enable if that changes, or use a
-  # self-hosted runner on your own network (runs-on: self-hosted).
-  # schedule:
-  #   - cron: "*/10 * * * *"  # every 10 minutes
+  schedule:
+    - cron: "*/10 * * * *"  # every 10 minutes (GitHub may delay scheduled runs)
   workflow_dispatch:
 
 permissions:
@@ -22,17 +19,14 @@ jobs:
       NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
-      - name: Check Apple Store pickup availability
+      - name: Check Best Buy pickup availability
         id: stock
         env:
-          PART: MK1G4LL/A  # iPhone Duo 512GB Star White
+          BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
           ZIP: "94536"
           MAX_MILES: "60"
-        run: python check_stock.py
+        run: python3 check_bestbuy.py
 
       - name: Open an issue when in stock
         if: steps.stock.outputs.in_stock == 'true'
@@ -46,7 +40,7 @@ jobs:
             echo "Alert issue already open; skipping."
             exit 0
           fi
-          body="$(printf 'Available for in-store pickup within 60 miles of 94536:\n\n%s\n\nBuy: https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb-star-white-unlocked\n\nClose this issue to re-arm the alert.' "$STORES")"
+          body="$(printf 'Available for Best Buy in-store pickup within 60 miles of 94536:\n\n%s\n\nClose this issue to re-arm the alert.' "$STORES")"
           gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --assignee "$GITHUB_REPOSITORY_OWNER"
 
       - name: Push notification via ntfy (optional)
@@ -55,5 +49,4 @@ jobs:
           STORES: ${{ steps.stock.outputs.stores }}
         run: |
           curl -fsS -H "Title: iPhone Duo 512GB White in stock!" -H "Priority: urgent" \
-            -H "Click: https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb-star-white-unlocked" \
             -d "$STORES" "https://ntfy.sh/$NTFY_TOPIC"
