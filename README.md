@@ -1,6 +1,6 @@
 # duo-watch
 
-Watches **Apple Store pickup stock** for the **iPhone Duo 512GB Star White** (MK1G4LL/A) within **100 miles of 94536**, and alerts your phone when it shows up.
+Watches **Apple Store pickup stock** for the **iPhone Duo 512GB** in **Star White** (MK1G4LL/A) or **Night Sky** (MK1H4LL/A) within **100 miles of 94536**, and alerts your phone when either shows up. The alert names the color and opens that color's buy page.
 
 It checks two sources at the same time:
 

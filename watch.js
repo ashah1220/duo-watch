@@ -1,4 +1,4 @@
-// Watches Apple Store pickup stock for iPhone Duo 512GB Star White near a ZIP.
+// Watches Apple Store pickup stock for iPhone Duo 512GB (Star White or Night Sky) near a ZIP.
 //
 // Two sources, checked side by side:
 // - Apple's own pickup endpoint (what "Check availability" on the buy page
@@ -8,7 +8,12 @@
 // Sends a push notification (ntfy) and a Mac notification when it's in stock.
 const { execFile } = require('child_process');
 
-const PART = 'MK1G4LL/A'; // iPhone Duo 512GB Star White (US)
+// The iPhone Duo 512GB models to watch (US part numbers).
+const BUY_URL = 'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb';
+const PARTS = {
+  'MK1G4LL/A': { color: 'Star White', url: `${BUY_URL}-star-white-unlocked` },
+  'MK1H4LL/A': { color: 'Night Sky', url: `${BUY_URL}-night-sky-unlocked` },
+};
 const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
@@ -22,11 +27,16 @@ const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
 const POLL_SECONDS = 20; // poll this often while a sweep is due
 const POLL_LATE_MINUTES = 2; // keep polling this long past the expected time
 const STALE_MINUTES = 60; // alert if Duo Stock's data is older than this in the daytime
-const PRODUCT_URL =
-  'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb-star-white-unlocked';
+const PRODUCT_URL = PARTS['MK1G4LL/A'].url;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toLocaleTimeString();
+
+// Turn in-stock finds ({ part, line }) into one alert naming the colors.
+async function notifyHits(hits, source) {
+  const colors = [...new Set(hits.map((h) => PARTS[h.part].color))];
+  await notify(`iPhone Duo 512GB ${colors.join(' + ')} IN STOCK (${source})`, hits.map((h) => h.line).join('\n'), PARTS[hits[0].part].url);
+}
 
 // Log one check's result, and copy it to STATUS_TOPIC so it can be read
 // while the watcher runs (GitHub only shows logs once a run ends).
@@ -45,12 +55,12 @@ function macNotify(title, text) {
   execFile('osascript', ['-e', script], () => {});
 }
 
-async function phoneNotify(title, text) {
+async function phoneNotify(title, text, url) {
   if (!NTFY_TOPIC) return;
   try {
     await fetch(`https://ntfy.sh/${encodeURIComponent(NTFY_TOPIC)}`, {
       method: 'POST',
-      headers: { Title: title, Priority: 'urgent', Click: PRODUCT_URL },
+      headers: { Title: title, Priority: 'urgent', Click: url },
       body: text,
     });
   } catch (e) {
@@ -60,14 +70,14 @@ async function phoneNotify(title, text) {
 
 // When running in GitHub Actions, open an issue assigned to the repo owner so
 // the GitHub app on their phone sends a notification.
-async function issueNotify(title, text) {
+async function issueNotify(title, text, url) {
   const { GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_REPOSITORY_OWNER } = process.env;
   if (!GITHUB_TOKEN || !GITHUB_REPOSITORY) return;
   try {
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: 'application/vnd.github+json' },
-      body: JSON.stringify({ title, body: `${text}\n\n${PRODUCT_URL}`, assignees: [GITHUB_REPOSITORY_OWNER] }),
+      body: JSON.stringify({ title, body: `${text}\n\n${url}`, assignees: [GITHUB_REPOSITORY_OWNER] }),
     });
     if (!res.ok) console.log(`[${now()}] Issue alert failed: HTTP ${res.status}`);
   } catch (e) {
@@ -75,16 +85,17 @@ async function issueNotify(title, text) {
   }
 }
 
-async function notify(title, text) {
+async function notify(title, text, url = PRODUCT_URL) {
   console.log(`\n*** ${title}\n${text}\n`);
   macNotify(title, text);
-  await Promise.all([phoneNotify(title, text), issueNotify(title, text)]);
+  await Promise.all([phoneNotify(title, text, url), issueNotify(title, text, url)]);
 }
 
 // Ask Apple's pickup endpoint (the one its buy page uses) about the stores
 // nearest ZIP. Returns Apple's store list, or { blocked } / null on failure.
 async function fetchApple() {
-  const url = `${APPLE_API}?pl=true&location=${ZIP}&parts.0=${encodeURIComponent(PART)}`;
+  const parts = Object.keys(PARTS).map((p, i) => `&parts.${i}=${encodeURIComponent(p)}`).join('');
+  const url = `${APPLE_API}?pl=true&location=${ZIP}${parts}`;
   try {
     const res = await fetch(url, {
       headers: {
@@ -125,16 +136,17 @@ async function watchApple() {
       for (const s of r.stores) {
         const miles = parseFloat(s.storedistance ?? s.storeDistanceWithUnit ?? 'Infinity');
         farthest = Math.max(farthest, miles);
-        const a = s.partsAvailability?.[PART] || {};
-        if (a.pickupDisplay === 'available' && miles <= MAX_MILES) {
-          hits.push(`${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}`);
+        for (const part in PARTS) {
+          const a = s.partsAvailability?.[part] || {};
+          if (a.pickupDisplay === 'available' && miles <= MAX_MILES) {
+            hits.push({ part, line: `${PARTS[part].color}: ${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}` });
+          }
         }
       }
-      status(`Apple: ${r.stores.length} stores out to ${farthest} mi: ${hits.length ? hits.join('; ') : 'not in stock nearby'}.`);
-      const key = hits.join('|');
-      if (hits.length && key !== lastHit) {
-        await notify('iPhone Duo 512GB White IN STOCK (Apple)', hits.join('\n'));
-      }
+      const lines = hits.map((h) => h.line);
+      status(`Apple: ${r.stores.length} stores out to ${farthest} mi: ${hits.length ? lines.join('; ') : 'not in stock nearby'}.`);
+      const key = lines.join('|');
+      if (hits.length && key !== lastHit) await notifyHits(hits, 'Apple');
       lastHit = key;
     } else if (++failures === 6) {
       await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
@@ -149,7 +161,7 @@ async function watchApple() {
 
 // One Duo Stock request. Returns the parsed body, or null if it failed.
 async function fetchDuoStock() {
-  const url = `${DUO_STOCK_API}?zip=${ZIP}&part_number=${encodeURIComponent(PART)}&radius_miles=${MAX_MILES}&available_only=1&limit=50`;
+  const url = `${DUO_STOCK_API}?zip=${ZIP}&storage_gb=512&radius_miles=${MAX_MILES}&available_only=1&limit=50`;
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (res.status === 429) {
@@ -222,27 +234,27 @@ async function watchDuoStock() {
     due = started + SWEEP_MINUTES * 60000 + took;
     while (due < Date.now()) due += SWEEP_MINUTES * 60000;
 
-    const hits = (data.stores || []).map((s) => {
-      const p = s.products.find((x) => x.part_number === PART) || {};
-      return `${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}`;
-    });
+    const hits = (data.stores || []).flatMap((s) =>
+      s.products
+        .filter((p) => PARTS[p.part_number] && p.pickup_status === 'available')
+        .map((p) => ({ part: p.part_number, line: `${PARTS[p.part_number].color}: ${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}` })),
+    );
+    const lines = hits.map((h) => h.line);
     const sweptAt = new Date(data.run_finished_at).toLocaleTimeString();
-    status(`Duo Stock sweep from ${sweptAt}: ${hits.length ? hits.join('; ') : 'not in stock nearby'}${data.is_stale ? ' (stale)' : ''}.`);
-    const key = hits.join('|');
-    if (hits.length && key !== lastHit) {
-      await notify('iPhone Duo 512GB White IN STOCK (Duo Stock)', hits.join('\n'));
-    }
+    status(`Duo Stock sweep from ${sweptAt}: ${hits.length ? lines.join('; ') : 'not in stock nearby'}${data.is_stale ? ' (stale)' : ''}.`);
+    const key = lines.join('|');
+    if (hits.length && key !== lastHit) await notifyHits(hits, 'Duo Stock');
     lastHit = key;
   }
 }
 
 async function main() {
-  console.log(`Watching ${PART} within ${MAX_MILES} mi of ${ZIP}.`);
+  console.log(`Watching ${Object.keys(PARTS).join(' and ')} within ${MAX_MILES} mi of ${ZIP}.`);
   console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
   if (APPLE) console.log(`Apple directly about every ${APPLE_EVERY_MINUTES} min (nearest ~12 stores).`);
   console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
-    await notify('Duo watcher test alert', `If you see this, alerts work. Watching Star White 512GB within ${MAX_MILES} mi of ${ZIP}.`);
+    await notify('Duo watcher test alert', `If you see this, alerts work. Watching 512GB Star White and Night Sky within ${MAX_MILES} mi of ${ZIP}.`);
   }
   await Promise.all([APPLE && watchApple(), watchDuoStock()]);
 }
