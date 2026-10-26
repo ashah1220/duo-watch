@@ -29,6 +29,7 @@ const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2);
 const APPLE_MAX_MINUTES = 6; // slowest we'll go after Apple says slow down
 const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
 const REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
+const OLD_HIT_MINUTES = 5; // stock seen longer ago than this is gone; don't alert it
 // Distances are measured from here (the center of 94536), not from the ZIP
 // Apple was asked about.
 const HOME = [Number(process.env.HOME_LAT || 37.563), Number(process.env.HOME_LON || -122.0101)];
@@ -50,14 +51,15 @@ const clock = (t = Date.now()) => new Date(t).toLocaleTimeString('en-US', { time
 const alerted = new Map();
 const goneAt = new Map();
 
-// Alert the hits ({ key, part, seenAt, line }) worth one: not alerted in the
-// last REALERT_MINUTES unless Apple has seen them sell out since, and not
-// seen sold out by Apple after they were seen in stock.
+// Alert the hits ({ key, part, seenAt, line }) worth one: seen in the last
+// OLD_HIT_MINUTES, not alerted in the last REALERT_MINUTES unless Apple has
+// seen them sell out since, and not seen sold out by Apple after they were
+// seen in stock.
 async function alertFresh(hits, source) {
   const fresh = hits.filter((h) => {
     const last = alerted.get(h.key);
     const gone = goneAt.get(h.key);
-    if (gone > h.seenAt) return false;
+    if (gone > h.seenAt || Date.now() - h.seenAt > OLD_HIT_MINUTES * 60000) return false;
     return !(Date.now() - last < REALERT_MINUTES * 60000) || gone > last;
   });
   if (!fresh.length) return;
