@@ -28,7 +28,7 @@ const APPLE_ZIPS = (process.env.APPLE_ZIPS || `${ZIP},95688,${ZIP},93901`).split
 const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2);
 const APPLE_MAX_MINUTES = 6; // slowest we'll go after Apple says slow down
 const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
-const APPLE_REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
+const REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
 // Distances are measured from here (the center of 94536), not from the ZIP
 // Apple was asked about.
 const HOME = [Number(process.env.HOME_LAT || 37.563), Number(process.env.HOME_LON || -122.0101)];
@@ -41,6 +41,29 @@ const PRODUCT_URL = PARTS['MK1G4LL/A'].url;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toLocaleTimeString();
+const clock = (t = Date.now()) => new Date(t).toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
+
+// Shared by both sources, keyed "store|part" (both use Apple's store IDs):
+// when we last alerted it, and when Apple last saw it not in stock. Duo Stock
+// reports the same stock minutes after Apple does, so without this one
+// sighting would alert twice, the second time after it's gone.
+const alerted = new Map();
+const goneAt = new Map();
+
+// Alert the hits ({ key, part, seenAt, line }) worth one: not alerted in the
+// last REALERT_MINUTES unless Apple has seen them sell out since, and not
+// seen sold out by Apple after they were seen in stock.
+async function alertFresh(hits, source) {
+  const fresh = hits.filter((h) => {
+    const last = alerted.get(h.key);
+    const gone = goneAt.get(h.key);
+    if (gone > h.seenAt) return false;
+    return !(Date.now() - last < REALERT_MINUTES * 60000) || gone > last;
+  });
+  if (!fresh.length) return;
+  fresh.forEach((h) => alerted.set(h.key, Date.now()));
+  await notifyHits(fresh, source);
+}
 
 // Turn in-stock finds ({ part, line }) into one alert naming the colors.
 async function notifyHits(hits, source) {
@@ -142,7 +165,6 @@ async function fetchApple(zip) {
 }
 
 async function watchApple() {
-  const alerted = new Map(); // "store|part" -> when we last alerted it
   let every = APPLE_EVERY_MINUTES;
   let failures = 0;
   for (let n = 0; ; n++) {
@@ -159,9 +181,9 @@ async function watchApple() {
         for (const part in PARTS) {
           const a = s.partsAvailability?.[part] || {};
           const key = `${s.storeNumber}|${part}`;
-          if (a.pickupDisplay !== 'available') alerted.delete(key);
+          if (a.pickupDisplay !== 'available') goneAt.set(key, Date.now());
           else if (miles <= MAX_MILES) {
-            hits.push({ key, part, line: `${PARTS[part].color}: ${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}` });
+            hits.push({ key, part, seenAt: Date.now(), line: `${PARTS[part].color}: ${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}, seen ${clock()}` });
           }
         }
       }
@@ -169,11 +191,7 @@ async function watchApple() {
       status(`Apple ${zip}: ${r.stores.length} stores out to ${farthest} mi: ${hits.length ? lines.join('; ') : 'not in stock nearby'}.`);
       // The same store shows up in several ZIPs' answers, so remember what
       // we've already alerted instead of comparing with the last answer.
-      const fresh = hits.filter((h) => !(Date.now() - alerted.get(h.key) < APPLE_REALERT_MINUTES * 60000));
-      if (fresh.length) {
-        fresh.forEach((h) => alerted.set(h.key, Date.now()));
-        await notifyHits(fresh, 'Apple');
-      }
+      await alertFresh(hits, 'Apple');
     } else if (++failures === 6) {
       await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
     }
@@ -221,7 +239,6 @@ function duoStockDaytime() {
 
 async function watchDuoStock() {
   let lastRun = '';
-  let lastHit = '';
   let failures = 0;
   let staleAlerted = false;
   let due = Date.now(); // when the next sweep should publish
@@ -268,14 +285,17 @@ async function watchDuoStock() {
     const hits = (data.stores || []).flatMap((s) =>
       s.products
         .filter((p) => PARTS[p.part_number] && p.pickup_status === 'available')
-        .map((p) => ({ part: p.part_number, line: `${PARTS[p.part_number].color}: ${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}` })),
+        .map((p) => ({
+          key: `${s.store_id}|${p.part_number}`,
+          part: p.part_number,
+          seenAt: Date.parse(p.observed_at) || Date.parse(data.run_finished_at),
+          line: `${PARTS[p.part_number].color}: ${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}, seen ${clock(Date.parse(p.observed_at) || Date.parse(data.run_finished_at))}`,
+        })),
     );
     const lines = hits.map((h) => h.line);
     const sweptAt = new Date(data.run_finished_at).toLocaleTimeString();
     status(`Duo Stock sweep from ${sweptAt}: ${hits.length ? lines.join('; ') : 'not in stock nearby'}${data.is_stale ? ' (stale)' : ''}.`);
-    const key = lines.join('|');
-    if (hits.length && key !== lastHit) await notifyHits(hits, 'Duo Stock');
-    lastHit = key;
+    await alertFresh(hits, 'Duo Stock');
   }
 }
 
