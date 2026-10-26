@@ -1,0 +1,11 @@
+{
+  "name": "duo-watch",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npx playwright install chromium",
+    "start": "caffeinate -i node watch.js"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
