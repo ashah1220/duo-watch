@@ -17,6 +17,7 @@ const PARTS = {
 const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
 const NTFY_TOPIC = process.env.NTFY_TOPIC || '';
+const BARK_URL = (process.env.BARK_URL || '').replace(/\/+$/, ''); // e.g. https://api.day.app/<your key>
 const STATUS_TOPIC = process.env.STATUS_TOPIC || ''; // optional ntfy topic for every check's result
 const APPLE = process.env.APPLE !== '0'; // APPLE=0 skips asking Apple directly
 const APPLE_API = 'https://www.apple.com/shop/retail/pickup-message';
@@ -103,6 +104,22 @@ async function phoneNotify(title, text, url) {
   }
 }
 
+// Bark (iPhone app) pushes straight through Apple's push service. Stock
+// alerts are critical, so they sound even on silent or in a Focus.
+async function barkNotify(title, text, url, critical) {
+  if (!BARK_URL) return;
+  try {
+    const res = await fetch(BARK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body: text, url, group: 'duo-watch', ...(critical ? { level: 'critical', volume: 10 } : { level: 'timeSensitive' }) }),
+    });
+    if (!res.ok) console.log(`[${now()}] Bark failed: HTTP ${res.status}`);
+  } catch (e) {
+    console.log(`[${now()}] Bark failed: ${e.message}`);
+  }
+}
+
 // When running in GitHub Actions, open an issue assigned to the repo owner so
 // the GitHub app on their phone sends a notification.
 async function issueNotify(title, text, url) {
@@ -123,7 +140,8 @@ async function issueNotify(title, text, url) {
 async function notify(title, text, url = PRODUCT_URL) {
   console.log(`\n*** ${title}\n${text}\n`);
   macNotify(title, text);
-  await Promise.all([phoneNotify(title, text, url), issueNotify(title, text, url)]);
+  const critical = title.includes('IN STOCK');
+  await Promise.all([phoneNotify(title, text, url), barkNotify(title, text, url, critical), issueNotify(title, text, url)]);
 }
 
 // Straight-line miles between two [lat, lon] points.

@@ -44,6 +44,7 @@ jobs:
           ZIP: "94536"
           MAX_MILES: "100"
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          BARK_URL: ${{ secrets.BARK_URL }}
           STATUS_TOPIC: ${{ secrets.NTFY_TOPIC && format('{0}-status', secrets.NTFY_TOPIC) || '' }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
