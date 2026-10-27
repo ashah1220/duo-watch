@@ -1,4 +1,4 @@
-// Watches Apple Store pickup stock for iPhone Duo 512GB (Star White or Night Sky) near a ZIP.
+// Watches Apple Store pickup stock for iPhone Duo 256GB and 512GB (Star White or Night Sky) near a ZIP.
 //
 // Two sources, checked side by side:
 // - Apple's own pickup endpoint (what "Check availability" on the buy page
@@ -8,11 +8,13 @@
 // Sends a push notification (ntfy) and a Mac notification when it's in stock.
 const { execFile } = require('child_process');
 
-// The iPhone Duo 512GB models to watch (US part numbers).
-const BUY_URL = 'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display-512gb';
+// The iPhone Duo models to watch (US part numbers).
+const BUY_URL = 'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display';
 const PARTS = {
-  'MK1G4LL/A': { color: 'Star White', url: `${BUY_URL}-star-white-unlocked` },
-  'MK1H4LL/A': { color: 'Night Sky', url: `${BUY_URL}-night-sky-unlocked` },
+  'MK1G4LL/A': { name: '512GB Star White', url: `${BUY_URL}-512gb-star-white-unlocked` },
+  'MK1H4LL/A': { name: '512GB Night Sky', url: `${BUY_URL}-512gb-night-sky-unlocked` },
+  'MK1E4LL/A': { name: '256GB Star White', url: `${BUY_URL}-256gb-star-white-unlocked` },
+  'MK1F4LL/A': { name: '256GB Night Sky', url: `${BUY_URL}-256gb-night-sky-unlocked` },
 };
 const ZIP = process.env.ZIP || '94536';
 const MAX_MILES = Number(process.env.MAX_MILES || 100);
@@ -73,8 +75,8 @@ async function alertFresh(hits, source) {
 
 // Turn in-stock finds ({ part, line }) into one alert naming the colors.
 async function notifyHits(hits, source) {
-  const colors = [...new Set(hits.map((h) => PARTS[h.part].color))];
-  await notify(`iPhone Duo 512GB ${colors.join(' + ')} IN STOCK (${source})`, hits.map((h) => h.line).join('\n'), PARTS[hits[0].part].url);
+  const names = [...new Set(hits.map((h) => PARTS[h.part].name))];
+  await notify(`iPhone Duo ${names.join(' + ')} IN STOCK (${source})`, hits.map((h) => h.line).join('\n'), PARTS[hits[0].part].url);
 }
 
 // Log one check's result, and copy it to STATUS_TOPIC so it can be read
@@ -225,7 +227,7 @@ async function watchApple() {
           const key = `${s.storeNumber}|${part}`;
           if (a.pickupDisplay !== 'available') goneAt.set(key, Date.now());
           else if (miles <= MAX_MILES) {
-            hits.push({ key, part, seenAt: Date.now(), line: `${PARTS[part].color}: ${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}, seen ${clock()}` });
+            hits.push({ key, part, seenAt: Date.now(), line: `${PARTS[part].name}: ${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}, seen ${clock()}` });
           }
         }
       }
@@ -252,7 +254,7 @@ async function watchApple() {
 
 // One Duo Stock request. Returns the parsed body, or null if it failed.
 async function fetchDuoStock() {
-  const url = `${DUO_STOCK_API}?zip=${ZIP}&storage_gb=512&radius_miles=${MAX_MILES}&available_only=1&limit=50`;
+  const url = `${DUO_STOCK_API}?zip=${ZIP}&radius_miles=${MAX_MILES}&available_only=1&limit=50`;
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (res.status === 429) {
@@ -331,7 +333,7 @@ async function watchDuoStock() {
           key: `${s.store_id}|${p.part_number}`,
           part: p.part_number,
           seenAt: Date.parse(p.observed_at) || Date.parse(data.run_finished_at),
-          line: `${PARTS[p.part_number].color}: ${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}, seen ${clock(Date.parse(p.observed_at) || Date.parse(data.run_finished_at))}`,
+          line: `${PARTS[p.part_number].name}: ${s.name} (${s.city}, ${s.distance_miles} mi): ${p.pickup_message || 'available'}, seen ${clock(Date.parse(p.observed_at) || Date.parse(data.run_finished_at))}`,
         })),
     );
     const lines = hits.map((h) => h.line);
@@ -342,12 +344,12 @@ async function watchDuoStock() {
 }
 
 async function main() {
-  console.log(`Watching ${Object.keys(PARTS).join(' and ')} within ${MAX_MILES} mi of ${ZIP}.`);
+  console.log(`Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
   console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
   if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}.`);
   console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
-    await notify('Duo watcher test alert', `If you see this, alerts work. Watching 512GB Star White and Night Sky within ${MAX_MILES} mi of ${ZIP}.`);
+    await notify('Duo watcher test alert', `If you see this, alerts work. Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
   }
   await Promise.all([APPLE && watchApple(), watchDuoStock()]);
 }
