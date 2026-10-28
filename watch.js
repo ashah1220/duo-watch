@@ -41,8 +41,7 @@ const FAST_MILES = Number(process.env.FAST_MILES || 50);
 // Apple's store goes down (HTTP 503) for updates and often releases stock
 // when it comes back, so after an outage check fast for this long.
 const AFTER_OUTAGE_FAST_MINUTES = Number(process.env.AFTER_OUTAGE_FAST_MINUTES || 60);
-const NO_FAST_AFTER_BLOCK_MINUTES = 60; // skip fast checks this long after Apple says slow down
-const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
+const NO_FAST_AFTER_BLOCK_MINUTES = 30; // skip fast checks this long after Apple says slow down
 const REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
 const OLD_HIT_MINUTES = 5; // stock seen longer ago than this is gone; don't alert it
 // Distances are measured from here (the center of 94536), not from the ZIP
@@ -282,14 +281,14 @@ async function watchApple() {
       await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
     }
 
-    // Apple limits how often one internet connection can ask, so when it
-    // says slow down, pause, then go back to the regular pace without the
-    // fast checks for a while.
+    // Apple limits how often one internet connection can ask. When it says
+    // slow down, keep checking at the regular pace (so we're back the moment
+    // it lifts) but skip the fast checks for a while.
     if (r?.blocked) {
       blockedAt = Date.now();
-      status(`Apple: pausing ${APPLE_BLOCKED_MINUTES} min, then every ${every} min, no fast checks for ${NO_FAST_AFTER_BLOCK_MINUTES} min.`);
+      status(`Apple: slowed down, checking every ${every} min, no fast checks for ${NO_FAST_AFTER_BLOCK_MINUTES} min.`);
     }
-    const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : fast || r?.down ? 1 : every;
+    const minutes = r?.blocked ? every : fast || r?.down ? 1 : every;
     await sleep((minutes + (Math.random() - 0.5) / 4) * 60000);
   }
 }
