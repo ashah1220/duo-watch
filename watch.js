@@ -45,6 +45,7 @@ const OLD_HIT_MINUTES = 5; // stock seen longer ago than this is gone; don't ale
 // Distances are measured from here (the center of 94536), not from the ZIP
 // Apple was asked about.
 const HOME = [Number(process.env.HOME_LAT || 37.563), Number(process.env.HOME_LON || -122.0101)];
+const DUO_STOCK = process.env.DUO_STOCK !== '0'; // DUO_STOCK=0 turns Duo Stock off
 const DUO_STOCK_API = 'https://duo-checker.on-forge.com/api/v1/nearby';
 const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
 const POLL_SECONDS = 20; // poll this often while a sweep is due
@@ -364,13 +365,13 @@ async function watchDuoStock() {
 
 async function main() {
   console.log(`Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
-  console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
+  if (DUO_STOCK) console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
   if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}; every minute within ${FAST_MILES} mi from ${FAST_START} to ${FAST_END} Pacific.`);
   console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
     await notify('Duo watcher test alert', `If you see this, alerts work. Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
   }
-  await Promise.all([APPLE && watchApple(), watchDuoStock()]);
+  await Promise.all([APPLE && watchApple(), DUO_STOCK && watchDuoStock()]);
 }
 
 main();

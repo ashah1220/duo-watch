@@ -43,6 +43,7 @@ jobs:
           TEST_ALERT: ${{ inputs.test_alert && '1' || '' }}
           ZIP: "94536"
           MAX_MILES: "100"
+          DUO_STOCK: "0"
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           BARK_URL: ${{ secrets.BARK_URL }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
