@@ -4,7 +4,7 @@ Watches **Apple Store pickup stock** for the **iPhone Duo 256GB or 512GB** in **
 
 It checks two sources at the same time:
 
-- **Apple directly:** every 2 minutes it asks Apple's pickup endpoint (the one "Check availability" on the buy page uses). Apple answers with the 12 or so stores nearest the ZIP asked about, so the watcher rotates through 94536 → Vacaville (95688) → 94536 → Salinas (93901), which together cover every store within 100 miles. Your closest 12 stores get checked every 4 minutes and the rest every 8. If Apple says to slow down, it pauses 30 minutes and then checks a minute less often.
+- **Apple directly:** every 2 minutes it asks Apple's pickup endpoint (the one "Check availability" on the buy page uses). Apple answers with the 12 or so stores nearest the ZIP asked about, so the watcher rotates through 94536 → Vacaville (95688) → 94536 → Salinas (93901), which together cover every store within 100 miles. Your closest 12 stores get checked every 4 minutes and the rest every 8. From 9:50 to 10:30 AM Pacific, when most stock appears, it checks every minute instead, only for the stores within 50 miles (`FAST_WINDOW`, `FAST_MILES`). If Apple says to slow down, it pauses 30 minutes, then checks a minute less often and skips the fast window.
 - **[Duo Stock](https://duo-checker.on-forge.com):** this site checks every US Apple Store every 20 minutes (6:30 AM to 9:30 PM Eastern), which covers the whole 100 miles. The watcher works out when each check will publish and polls every 20 seconds around that time, so it sees new results within seconds.
 
 ## Where it runs: GitHub (no computer needed)

@@ -32,6 +32,12 @@ const APPLE_API = 'https://www.apple.com/shop/retail/pickup-message';
 // Modesto. The home ZIP comes up every other check.
 const APPLE_ZIPS = (process.env.APPLE_ZIPS || `${ZIP},95688,${ZIP},93901`).split(',');
 const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2);
+// Around store opening (Pacific time), when most stock appears, check every
+// minute but only the stores within FAST_MILES: the home ZIP twice for each
+// Vacaville check, which adds SF and Marin.
+const [FAST_START, FAST_END] = (process.env.FAST_WINDOW || '09:50-10:30').split('-');
+const FAST_ZIPS = (process.env.FAST_ZIPS || `${ZIP},${ZIP},95688`).split(',');
+const FAST_MILES = Number(process.env.FAST_MILES || 50);
 const APPLE_MAX_MINUTES = 6; // slowest we'll go after Apple says slow down
 const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
 const REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
@@ -208,11 +214,24 @@ async function fetchApple(zip) {
   }
 }
 
+// True between FAST_START and FAST_END, Pacific time.
+function inFastWindow() {
+  const hm = new Date().toLocaleTimeString('en-GB', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return hm >= FAST_START && hm < FAST_END;
+}
+
 async function watchApple() {
   let every = APPLE_EVERY_MINUTES;
   let failures = 0;
+  let wasFast = false;
   for (let n = 0; ; n++) {
-    const zip = APPLE_ZIPS[n % APPLE_ZIPS.length];
+    // Skip the fast window once Apple has asked us to slow down.
+    const fast = every === APPLE_EVERY_MINUTES && inFastWindow();
+    if (fast !== wasFast) status(fast ? `Apple: every minute within ${FAST_MILES} mi until ${FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
+    wasFast = fast;
+    const zips = fast ? FAST_ZIPS : APPLE_ZIPS;
+    const maxMiles = fast ? FAST_MILES : MAX_MILES;
+    const zip = zips[n % zips.length];
     const r = await fetchApple(zip);
     if (r?.stores) {
       failures = 0;
@@ -226,7 +245,7 @@ async function watchApple() {
           const a = s.partsAvailability?.[part] || {};
           const key = `${s.storeNumber}|${part}`;
           if (a.pickupDisplay !== 'available') goneAt.set(key, Date.now());
-          else if (miles <= MAX_MILES) {
+          else if (miles <= maxMiles) {
             hits.push({ key, part, seenAt: Date.now(), line: `${PARTS[part].name}: ${s.storeName} (${s.city}, ${miles} mi): ${a.pickupSearchQuote || 'available'}, seen ${clock()}` });
           }
         }
@@ -247,7 +266,7 @@ async function watchApple() {
       every = Math.min(every + 1, APPLE_MAX_MINUTES);
       status(`Apple: pausing ${APPLE_BLOCKED_MINUTES} min, then checking every ${every} min.`);
     }
-    const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : every;
+    const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : fast ? 1 : every;
     await sleep((minutes + (Math.random() - 0.5) / 4) * 60000);
   }
 }
@@ -346,7 +365,7 @@ async function watchDuoStock() {
 async function main() {
   console.log(`Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
   console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
-  if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}.`);
+  if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}; every minute within ${FAST_MILES} mi from ${FAST_START} to ${FAST_END} Pacific.`);
   console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
     await notify('Duo watcher test alert', `If you see this, alerts work. Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
