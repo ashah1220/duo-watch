@@ -174,8 +174,10 @@ async function issueNotify(title, text, url) {
 async function notify(title, text, url = PRODUCT_URL) {
   console.log(`\n*** ${title}\n${text}\n`);
   macNotify(title, text);
-  const critical = title.includes('IN STOCK');
-  await Promise.all([phoneNotify(title, text, url), barkNotify(title, text, url, critical), smsNotify(title, text), issueNotify(title, text, url)]);
+  // Only stock alerts open a GitHub issue (an email) or a text; notices like
+  // "Apple Store is down" go to ntfy and Bark only.
+  const stock = title.includes('IN STOCK');
+  await Promise.all([phoneNotify(title, text, url), barkNotify(title, text, url, stock), stock && smsNotify(title, text), stock && issueNotify(title, text, url)]);
 }
 
 // Straight-line miles between two [lat, lon] points.
