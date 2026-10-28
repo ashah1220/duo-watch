@@ -41,7 +41,7 @@ const FAST_MILES = Number(process.env.FAST_MILES || 50);
 // Apple's store goes down (HTTP 503) for updates and often releases stock
 // when it comes back, so after an outage check fast for this long.
 const AFTER_OUTAGE_FAST_MINUTES = Number(process.env.AFTER_OUTAGE_FAST_MINUTES || 60);
-const APPLE_MAX_MINUTES = 6; // slowest we'll go after Apple says slow down
+const NO_FAST_AFTER_BLOCK_MINUTES = 60; // skip fast checks this long after Apple says slow down
 const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
 const REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
 const OLD_HIT_MINUTES = 5; // stock seen longer ago than this is gone; don't alert it
@@ -231,14 +231,15 @@ function inFastWindow() {
 }
 
 async function watchApple() {
-  let every = APPLE_EVERY_MINUTES;
+  const every = APPLE_EVERY_MINUTES;
+  let blockedAt = 0; // when Apple last said slow down
   let failures = 0;
   let wasFast = false;
   let downSince = 0; // when Apple's store went down, 0 while it's up
   let fastUntil = 0; // fast checks until then after an outage
   for (let n = 0; ; n++) {
     // Skip the fast window once Apple has asked us to slow down.
-    const fast = every === APPLE_EVERY_MINUTES && (inFastWindow() || Date.now() < fastUntil);
+    const fast = Date.now() - blockedAt > NO_FAST_AFTER_BLOCK_MINUTES * 60000 && (inFastWindow() || Date.now() < fastUntil);
     if (fast !== wasFast) status(fast ? `Apple: every minute within ${FAST_MILES} mi until ${Date.now() < fastUntil ? clock(fastUntil) : FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
     wasFast = fast;
     const zips = fast ? FAST_ZIPS : APPLE_ZIPS;
@@ -281,12 +282,12 @@ async function watchApple() {
       await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
     }
 
-    // Apple limits how often one internet connection can ask, and a block
-    // covers every device on it, so back off hard when it says slow down,
-    // then keep a slower pace.
+    // Apple limits how often one internet connection can ask, so when it
+    // says slow down, pause, then go back to the regular pace without the
+    // fast checks for a while.
     if (r?.blocked) {
-      every = Math.min(every + 1, APPLE_MAX_MINUTES);
-      status(`Apple: pausing ${APPLE_BLOCKED_MINUTES} min, then checking every ${every} min.`);
+      blockedAt = Date.now();
+      status(`Apple: pausing ${APPLE_BLOCKED_MINUTES} min, then every ${every} min, no fast checks for ${NO_FAST_AFTER_BLOCK_MINUTES} min.`);
     }
     const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : fast || r?.down ? 1 : every;
     await sleep((minutes + (Math.random() - 0.5) / 4) * 60000);
