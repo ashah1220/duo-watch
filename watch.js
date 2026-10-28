@@ -38,6 +38,9 @@ const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2);
 const [FAST_START, FAST_END] = (process.env.FAST_WINDOW || '09:50-10:30').split('-');
 const FAST_ZIPS = (process.env.FAST_ZIPS || `${ZIP},${ZIP},95688`).split(',');
 const FAST_MILES = Number(process.env.FAST_MILES || 50);
+// Apple's store goes down (HTTP 503) for updates and often releases stock
+// when it comes back, so after an outage check fast for this long.
+const AFTER_OUTAGE_FAST_MINUTES = Number(process.env.AFTER_OUTAGE_FAST_MINUTES || 60);
 const APPLE_MAX_MINUTES = 6; // slowest we'll go after Apple says slow down
 const APPLE_BLOCKED_MINUTES = 30; // wait this long after Apple says slow down
 const REALERT_MINUTES = 30; // don't re-alert a store/color still in stock sooner
@@ -199,6 +202,10 @@ async function fetchApple(zip) {
       status(`Apple ${zip}: HTTP ${res.status}, it's asking us to slow down.`);
       return { blocked: true };
     }
+    if (res.status === 503) {
+      status(`Apple ${zip}: HTTP 503, the Apple Store is down.`);
+      return { down: true };
+    }
     if (!res.ok) {
       status(`Apple ${zip}: HTTP ${res.status}.`);
       return null;
@@ -225,15 +232,27 @@ async function watchApple() {
   let every = APPLE_EVERY_MINUTES;
   let failures = 0;
   let wasFast = false;
+  let downSince = 0; // when Apple's store went down, 0 while it's up
+  let fastUntil = 0; // fast checks until then after an outage
   for (let n = 0; ; n++) {
     // Skip the fast window once Apple has asked us to slow down.
-    const fast = every === APPLE_EVERY_MINUTES && inFastWindow();
-    if (fast !== wasFast) status(fast ? `Apple: every minute within ${FAST_MILES} mi until ${FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
+    const fast = every === APPLE_EVERY_MINUTES && (inFastWindow() || Date.now() < fastUntil);
+    if (fast !== wasFast) status(fast ? `Apple: every minute within ${FAST_MILES} mi until ${Date.now() < fastUntil ? clock(fastUntil) : FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
     wasFast = fast;
     const zips = fast ? FAST_ZIPS : APPLE_ZIPS;
     const maxMiles = fast ? FAST_MILES : MAX_MILES;
     const zip = zips[n % zips.length];
     const r = await fetchApple(zip);
+    if (r?.down && !downSince) {
+      downSince = Date.now();
+      await notify('Apple Store is down', "Apple's store is down (HTTP 503). Checking every minute and will alert when it's back.");
+    }
+    if (r?.stores && downSince) {
+      const mins = Math.round((Date.now() - downSince) / 60000);
+      downSince = 0;
+      fastUntil = Date.now() + AFTER_OUTAGE_FAST_MINUTES * 60000;
+      await notify('Apple Store is back up', `Back after about ${mins} min. Checking stores within ${FAST_MILES} mi every minute until ${clock(fastUntil)}.`);
+    }
     if (r?.stores) {
       failures = 0;
       const hits = [];
@@ -256,7 +275,7 @@ async function watchApple() {
       // The same store shows up in several ZIPs' answers, so remember what
       // we've already alerted instead of comparing with the last answer.
       await alertFresh(hits, 'Apple');
-    } else if (++failures === 6) {
+    } else if (!r?.down && ++failures === 6) {
       await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
     }
 
@@ -267,7 +286,7 @@ async function watchApple() {
       every = Math.min(every + 1, APPLE_MAX_MINUTES);
       status(`Apple: pausing ${APPLE_BLOCKED_MINUTES} min, then checking every ${every} min.`);
     }
-    const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : fast ? 1 : every;
+    const minutes = r?.blocked ? APPLE_BLOCKED_MINUTES : fast || r?.down ? 1 : every;
     await sleep((minutes + (Math.random() - 0.5) / 4) * 60000);
   }
 }
