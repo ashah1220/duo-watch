@@ -38,6 +38,7 @@ const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2);
 const [FAST_START, FAST_END] = (process.env.FAST_WINDOW || '09:50-10:30').split('-');
 const FAST_ZIPS = (process.env.FAST_ZIPS || `${ZIP},${ZIP},95688`).split(',');
 const FAST_MILES = Number(process.env.FAST_MILES || 50);
+const FAST_EVERY_MINUTES = Number(process.env.FAST_EVERY_MINUTES || 1.5);
 // Apple's store goes down (HTTP 503) for updates and often releases stock
 // when it comes back, so after an outage check fast for this long.
 const AFTER_OUTAGE_FAST_MINUTES = Number(process.env.AFTER_OUTAGE_FAST_MINUTES || 60);
@@ -240,7 +241,7 @@ async function watchApple() {
   for (let n = 0; ; n++) {
     // Skip the fast window once Apple has asked us to slow down.
     const fast = Date.now() - blockedAt > NO_FAST_AFTER_BLOCK_MINUTES * 60000 && (inFastWindow() || Date.now() < fastUntil);
-    if (fast !== wasFast) status(fast ? `Apple: every minute within ${FAST_MILES} mi until ${Date.now() < fastUntil ? clock(fastUntil) : FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
+    if (fast !== wasFast) status(fast ? `Apple: every ${FAST_EVERY_MINUTES} min within ${FAST_MILES} mi until ${Date.now() < fastUntil ? clock(fastUntil) : FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
     wasFast = fast;
     const zips = fast ? FAST_ZIPS : APPLE_ZIPS;
     const maxMiles = fast ? FAST_MILES : MAX_MILES;
@@ -263,7 +264,7 @@ async function watchApple() {
       const mins = Math.round((Date.now() - downSince) / 60000);
       downSince = 0;
       fastUntil = Date.now() + AFTER_OUTAGE_FAST_MINUTES * 60000;
-      await notify('Apple Store is back up', `Back after about ${mins} min. Checking stores within ${FAST_MILES} mi every minute until ${clock(fastUntil)}.`);
+      await notify('Apple Store is back up', `Back after about ${mins} min. Checking stores within ${FAST_MILES} mi every ${FAST_EVERY_MINUTES} min until ${clock(fastUntil)}.`);
     }
     if (r?.stores) {
       failures = 0;
@@ -298,7 +299,7 @@ async function watchApple() {
       blockedAt = Date.now();
       status(`Apple: slowed down, checking every ${every} min, no fast checks for ${NO_FAST_AFTER_BLOCK_MINUTES} min.`);
     }
-    const minutes = r?.blocked ? every : fast || r?.down ? 1 : every;
+    const minutes = r?.blocked ? every : r?.down ? 1 : fast ? FAST_EVERY_MINUTES : every;
     await sleep((minutes + (Math.random() - 0.5) / 4) * 60000);
   }
 }
@@ -397,7 +398,7 @@ async function watchDuoStock() {
 async function main() {
   console.log(`Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
   if (DUO_STOCK) console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
-  if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}; every minute within ${FAST_MILES} mi from ${FAST_START} to ${FAST_END} Pacific.`);
+  if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}; every ${FAST_EVERY_MINUTES} min within ${FAST_MILES} mi from ${FAST_START} to ${FAST_END} Pacific.`);
   console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
     await notify('Duo watcher test alert', `If you see this, alerts work. Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
