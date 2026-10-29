@@ -1,4 +1,4 @@
-// Watches Apple Store pickup stock for iPhone Duo 256GB (Star White or Night Sky) near a ZIP.
+// Watches Apple Store pickup stock for iPhone Duo 256GB and 512GB (Star White or Night Sky) near a ZIP.
 //
 // Two sources, checked side by side:
 // - Apple's own pickup endpoint (what "Check availability" on the buy page
@@ -11,6 +11,8 @@ const { execFile } = require('child_process');
 // The iPhone Duo models to watch (US part numbers).
 const BUY_URL = 'https://www.apple.com/shop/buy-iphone/iphone-duo/7.6-inch-display';
 const PARTS = {
+  'MK1G4LL/A': { name: '512GB Star White', url: `${BUY_URL}-512gb-star-white-unlocked` },
+  'MK1H4LL/A': { name: '512GB Night Sky', url: `${BUY_URL}-512gb-night-sky-unlocked` },
   'MK1E4LL/A': { name: '256GB Star White', url: `${BUY_URL}-256gb-star-white-unlocked` },
   'MK1F4LL/A': { name: '256GB Night Sky', url: `${BUY_URL}-256gb-night-sky-unlocked` },
 };
@@ -51,7 +53,7 @@ const SWEEP_MINUTES = 20; // Duo Stock sweeps every 20 minutes
 const POLL_SECONDS = 20; // poll this often while a sweep is due
 const POLL_LATE_MINUTES = 2; // keep polling this long past the expected time
 const STALE_MINUTES = 60; // alert if Duo Stock's data is older than this in the daytime
-const PRODUCT_URL = Object.values(PARTS)[0].url;
+const PRODUCT_URL = PARTS['MK1G4LL/A'].url;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toLocaleTimeString();

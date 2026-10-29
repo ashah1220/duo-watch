@@ -1,6 +1,6 @@
 # duo-watch
 
-Watches **Apple Store pickup stock** for the **iPhone Duo 256GB** in **Star White** or **Night Sky** (MK1E4LL/A, MK1F4LL/A) within **100 miles of 94536**, and alerts your phone when either shows up. The alert names the model and opens its buy page. To watch other models, add their part numbers to `PARTS` in `watch.js`.
+Watches **Apple Store pickup stock** for the **iPhone Duo 256GB or 512GB** in **Star White** or **Night Sky** (MK1E4LL/A, MK1F4LL/A, MK1G4LL/A, MK1H4LL/A) within **100 miles of 94536**, and alerts your phone when any of them shows up. The alert names the model and opens its buy page.
 
 It checks two sources at the same time:
 
