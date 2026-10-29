@@ -232,6 +232,7 @@ function inFastWindow() {
 async function watchApple() {
   const every = APPLE_EVERY_MINUTES;
   let blockedAt = 0; // when Apple last said slow down
+  let blockedSince = 0; // start of the current run of 541s, 0 when not blocked
   let failures = 0;
   let wasFast = false;
   let downSince = 0; // when Apple's store went down, 0 while it's up
@@ -248,6 +249,15 @@ async function watchApple() {
     if (r?.down && !downSince) {
       downSince = Date.now();
       await notify('Apple Store is down', "Apple's store is down (HTTP 503). Checking every minute and will alert when it's back.");
+    }
+    if (r?.blocked && !blockedSince) {
+      blockedSince = Date.now();
+      await notify('Apple is rate-limiting the watcher', `Apple answered HTTP 541 (slow down). Still checking every ${every} min and will say when it lets us back in.`);
+    }
+    if (r?.stores && blockedSince) {
+      const mins = Math.round((Date.now() - blockedSince) / 60000);
+      blockedSince = 0;
+      await notify('Apple checks resumed', `Apple stopped rate-limiting after about ${mins} min. Back to normal checks.`);
     }
     if (r?.stores && downSince) {
       const mins = Math.round((Date.now() - downSince) / 60000);
@@ -277,8 +287,8 @@ async function watchApple() {
       // The same store shows up in several ZIPs' answers, so remember what
       // we've already alerted instead of comparing with the last answer.
       await alertFresh(hits, 'Apple');
-    } else if (!r?.down && ++failures === 6) {
-      await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. Duo Stock is still being watched.");
+    } else if (!r?.down && !r?.blocked && ++failures === 6) {
+      await notify('Duo watcher needs a look', "Apple's pickup check has failed 6 times in a row. See the live feed for the errors.");
     }
 
     // Apple limits how often one internet connection can ask. When it says
