@@ -39,7 +39,7 @@ const NIGHT_EVERY_MINUTES = Number(process.env.NIGHT_EVERY_MINUTES || 4);
 // Around store opening (Pacific time), when most stock appears, check every
 // minute but only the stores within FAST_MILES: the home ZIP twice for each
 // Vacaville check, which adds SF and Marin.
-const [FAST_START, FAST_END] = (process.env.FAST_WINDOW || '09:50-10:30').split('-');
+const [FAST_START, FAST_END] = (process.env.FAST_WINDOW || '09:15-10:45').split('-');
 const FAST_ZIPS = (process.env.FAST_ZIPS || `${ZIP},${ZIP},95688`).split(',');
 const FAST_MILES = Number(process.env.FAST_MILES || 50);
 const FAST_EVERY_MINUTES = Number(process.env.FAST_EVERY_MINUTES || 1.5);
