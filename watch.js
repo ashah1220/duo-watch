@@ -31,7 +31,11 @@ const APPLE_API = 'https://www.apple.com/shop/retail/pickup-message';
 // Sacramento, Roseville, Santa Rosa, Marin and SF; Salinas adds Monterey and
 // Modesto. The home ZIP comes up every other check.
 const APPLE_ZIPS = (process.env.APPLE_ZIPS || `${ZIP},95688,${ZIP},93901`).split(',');
-const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2);
+const APPLE_EVERY_MINUTES = Number(process.env.APPLE_EVERY_MINUTES || 2.5);
+// Overnight (Pacific time) stock is rare, so check less often and stay
+// further under Apple's limit.
+const [NIGHT_START, NIGHT_END] = (process.env.NIGHT_WINDOW || '23:00-07:00').split('-');
+const NIGHT_EVERY_MINUTES = Number(process.env.NIGHT_EVERY_MINUTES || 4);
 // Around store opening (Pacific time), when most stock appears, check every
 // minute but only the stores within FAST_MILES: the home ZIP twice for each
 // Vacaville check, which adds SF and Marin.
@@ -224,14 +228,13 @@ async function fetchApple(zip) {
   }
 }
 
-// True between FAST_START and FAST_END, Pacific time.
-function inFastWindow() {
+// True between start and end ("HH:MM", Pacific time); end may be after midnight.
+function inWindow(start, end) {
   const hm = new Date().toLocaleTimeString('en-GB', { timeZone: 'America/Los_Angeles', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-  return hm >= FAST_START && hm < FAST_END;
+  return start <= end ? hm >= start && hm < end : hm >= start || hm < end;
 }
 
 async function watchApple() {
-  const every = APPLE_EVERY_MINUTES;
   let blockedAt = 0; // when Apple last said slow down
   let blockedSince = 0; // start of the current run of 541s, 0 when not blocked
   let failures = 0;
@@ -240,7 +243,8 @@ async function watchApple() {
   let fastUntil = 0; // fast checks until then after an outage
   for (let n = 0; ; n++) {
     // Skip the fast window once Apple has asked us to slow down.
-    const fast = Date.now() - blockedAt > NO_FAST_AFTER_BLOCK_MINUTES * 60000 && (inFastWindow() || Date.now() < fastUntil);
+    const every = inWindow(NIGHT_START, NIGHT_END) ? NIGHT_EVERY_MINUTES : APPLE_EVERY_MINUTES;
+    const fast = Date.now() - blockedAt > NO_FAST_AFTER_BLOCK_MINUTES * 60000 && (inWindow(FAST_START, FAST_END) || Date.now() < fastUntil);
     if (fast !== wasFast) status(fast ? `Apple: every ${FAST_EVERY_MINUTES} min within ${FAST_MILES} mi until ${Date.now() < fastUntil ? clock(fastUntil) : FAST_END}.` : `Apple: back to every ${every} min within ${MAX_MILES} mi.`);
     wasFast = fast;
     const zips = fast ? FAST_ZIPS : APPLE_ZIPS;
@@ -398,7 +402,7 @@ async function watchDuoStock() {
 async function main() {
   console.log(`Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
   if (DUO_STOCK) console.log(`Duo Stock every ${POLL_SECONDS}s around each ${SWEEP_MINUTES}-min sweep.`);
-  if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min, rotating ZIPs ${APPLE_ZIPS.join(' → ')}; every ${FAST_EVERY_MINUTES} min within ${FAST_MILES} mi from ${FAST_START} to ${FAST_END} Pacific.`);
+  if (APPLE) console.log(`Apple directly every ${APPLE_EVERY_MINUTES} min (${NIGHT_EVERY_MINUTES} overnight), rotating ZIPs ${APPLE_ZIPS.join(' → ')}; every ${FAST_EVERY_MINUTES} min within ${FAST_MILES} mi from ${FAST_START} to ${FAST_END} Pacific.`);
   console.log('Press Ctrl+C to stop.\n');
   if (process.env.TEST_ALERT === '1') {
     await notify('Duo watcher test alert', `If you see this, alerts work. Watching ${Object.values(PARTS).map((p) => p.name).join(', ')} within ${MAX_MILES} mi of ${ZIP}.`);
